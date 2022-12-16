@@ -13,18 +13,69 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"time"
 	"unsafe"
 )
 
-func RegisterDriver(name string) {
-	if name == "" {
-		name = "sqlite"
+type JournalMode string
+
+const (
+	JournalModeWAL = "wal"
+)
+
+func (j JournalMode) String() string {
+	return string(j)
+}
+
+type logger interface {
+	Println(v ...any)
+}
+
+type discardLogger struct{}
+
+func (d *discardLogger) Println(v ...any) {}
+
+type Options struct {
+	BusyTimeout *time.Duration
+	ForeignKeys *bool
+	JournalMode JournalMode
+	Logger      logger
+	Name        string
+}
+
+func RegisterDriver(opts Options) {
+	if opts.Name == "" {
+		opts.Name = "sqlite"
 	}
-	sql.Register(name, &d{})
+
+	if opts.Logger == nil {
+		opts.Logger = &discardLogger{}
+	}
+
+	if opts.JournalMode == "" {
+		opts.JournalMode = JournalModeWAL
+	}
+
+	if opts.BusyTimeout == nil {
+		opts.BusyTimeout = ptr(5 * time.Second)
+	}
+
+	if opts.ForeignKeys == nil {
+		opts.ForeignKeys = ptr(true)
+	}
+
+	sql.Register(opts.Name, &d{opts: opts, log: opts.Logger})
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 // d satisfies driver.Driver.
-type d struct{}
+type d struct {
+	opts Options
+	log  logger
+}
 
 // Open returns a new connection to the database.
 // The name is a string in a driver-specific format.
@@ -50,11 +101,33 @@ func (d *d) Open(name string) (driver.Conn, error) {
 		}
 		return nil, wrapErrorCode("error opening connection", code)
 	}
-	return &connection{db: db}, nil
+
+	c := &connection{db: db}
+
+	pragmas := map[string]any{
+		"journal_mode": d.opts.JournalMode,
+		"busy_timeout": d.opts.BusyTimeout.Milliseconds(),
+		"foreign_keys": *d.opts.ForeignKeys,
+	}
+
+	for k, v := range pragmas {
+		d.log.Println("Setting pragma", k, "to", v)
+		if err := c.exec("pragma %v = %v", k, v); err != nil {
+			return nil, wrapError("error setting pragma %v", err, k)
+		}
+	}
+
+	return c, nil
 }
 
-func wrapErrorCode(message string, code C.int) error {
-	return fmt.Errorf(message+": %w", errString(code))
+func wrapError(format string, err error, args ...any) error {
+	args = append(args, err)
+	return fmt.Errorf(format+": %w", args...)
+}
+
+func wrapErrorCode(format string, code C.int, args ...any) error {
+	args = append(args, errString(code))
+	return fmt.Errorf(format+": %w", args...)
 }
 
 func errString(code C.int) error {
@@ -94,6 +167,16 @@ func (c *connection) Close() error {
 func (c *connection) Begin() (driver.Tx, error) {
 	//TODO implement me
 	panic("implement Begin")
+}
+
+func (c *connection) exec(format string, args ...any) error {
+	query := fmt.Sprintf(format, args...)
+	cQuery := C.CString(query)
+	defer C.free(unsafe.Pointer(cQuery))
+	if code := C.sqlite3_exec(c.db, cQuery, nil, nil, nil); code != C.SQLITE_OK {
+		return wrapErrorCode("error running query '%v'", code, query)
+	}
+	return nil
 }
 
 // statement satisfies driver.Stmt.
