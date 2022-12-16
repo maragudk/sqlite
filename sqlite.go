@@ -2,8 +2,10 @@
 
 package sqlite
 
-// #include <stdlib.h>
-// #include <sqlite3.h>
+/*
+#include <stdlib.h>
+#include <sqlite3.h>
+*/
 import "C"
 
 import (
@@ -14,12 +16,15 @@ import (
 	"unsafe"
 )
 
-func init() {
-	sql.Register("sqlite", &Driver{})
+func RegisterDriver(name string) {
+	if name == "" {
+		name = "sqlite"
+	}
+	sql.Register(name, &d{})
 }
 
-// Driver satisfies driver.Driver.
-type Driver struct{}
+// d satisfies driver.Driver.
+type d struct{}
 
 // Open returns a new connection to the database.
 // The name is a string in a driver-specific format.
@@ -30,30 +35,39 @@ type Driver struct{}
 //
 // The returned connection is only used by one goroutine at a
 // time.
-func (d *Driver) Open(name string) (driver.Conn, error) {
+func (d *d) Open(name string) (driver.Conn, error) {
 	var db *C.sqlite3
 
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 
-	// The default threading mode is serialized, so no need to set explicitly: https://www.sqlite.org/threadsafe.html
-	if code := C.sqlite3_open_v2(cName, &db, C.SQLITE_OPEN_READWRITE|C.SQLITE_OPEN_CREATE, nil); code != C.SQLITE_OK {
+	// The default threading mode is serialized, but we set it explicitly: https://www.sqlite.org/threadsafe.html
+	const flags = C.SQLITE_OPEN_READWRITE | C.SQLITE_OPEN_CREATE | C.SQLITE_OPEN_FULLMUTEX
+	if code := C.sqlite3_open_v2(cName, &db, flags, nil); code != C.SQLITE_OK {
 		if db != nil {
 			// TODO handle return value
 			C.sqlite3_close_v2(db)
 		}
-		return nil, fmt.Errorf("error opening connection (error code %v)", code)
+		return nil, wrapErrorCode("error opening connection", code)
 	}
-	return &Connection{db: db}, nil
+	return &connection{db: db}, nil
 }
 
-// Connection satisfies driver.Conn.
-type Connection struct {
+func wrapErrorCode(message string, code C.int) error {
+	return fmt.Errorf(message+": %w", errString(code))
+}
+
+func errString(code C.int) error {
+	return errors.New(C.GoString(C.sqlite3_errstr(code)))
+}
+
+// connection satisfies driver.Conn.
+type connection struct {
 	db *C.sqlite3
 }
 
-func (c *Connection) Prepare(query string) (driver.Stmt, error) {
-	return &Statement{db: c.db, query: query}, nil
+func (c *connection) Prepare(query string) (driver.Stmt, error) {
+	return &statement{db: c.db, query: query}, nil
 }
 
 // Close invalidates and potentially stops any current
@@ -67,27 +81,28 @@ func (c *Connection) Prepare(query string) (driver.Stmt, error) {
 //
 // Drivers must ensure all network calls made by Close
 // do not block indefinitely (e.g. apply a timeout).
-func (c *Connection) Close() error {
+func (c *connection) Close() error {
 	if code := C.sqlite3_close_v2(c.db); code != C.SQLITE_OK {
-		return fmt.Errorf("error closing connection (error code %v)", code)
+		return wrapErrorCode("error closing connection", code)
 	}
-	C.free(unsafe.Pointer(c.db))
-	c.db = nil
+	if c.db != nil {
+		c.db = nil
+	}
 	return nil
 }
 
-func (c *Connection) Begin() (driver.Tx, error) {
+func (c *connection) Begin() (driver.Tx, error) {
 	//TODO implement me
 	panic("implement Begin")
 }
 
-// Statement satisfies driver.Stmt.
-type Statement struct {
+// statement satisfies driver.Stmt.
+type statement struct {
 	db    *C.sqlite3
 	query string
 }
 
-func (s *Statement) Close() error {
+func (s *statement) Close() error {
 	return nil
 }
 
@@ -100,7 +115,7 @@ func (s *Statement) Close() error {
 // NumInput may also return -1, if the driver doesn't know
 // its number of placeholders. In that case, the sql package
 // will not sanity check Exec or Query argument counts.
-func (s *Statement) NumInput() int {
+func (s *statement) NumInput() int {
 	return -1
 }
 
@@ -108,12 +123,12 @@ func (s *Statement) NumInput() int {
 // as an INSERT or UPDATE.
 //
 // Deprecated: Drivers should implement StmtExecContext instead (or additionally).
-func (s *Statement) Exec(args []driver.Value) (driver.Result, error) {
+func (s *statement) Exec(args []driver.Value) (driver.Result, error) {
 	cQuery := C.CString(s.query)
 	defer C.free(unsafe.Pointer(cQuery))
 
-	if C.sqlite3_exec(s.db, cQuery, nil, nil, nil) != C.SQLITE_OK {
-		return nil, errors.New("error executing")
+	if code := C.sqlite3_exec(s.db, cQuery, nil, nil, nil); code != C.SQLITE_OK {
+		return nil, wrapErrorCode("error executing", code)
 	}
 
 	return nil, nil
@@ -123,7 +138,7 @@ func (s *Statement) Exec(args []driver.Value) (driver.Result, error) {
 // SELECT.
 //
 // Deprecated: Drivers should implement StmtQueryContext instead (or additionally).
-func (s *Statement) Query(args []driver.Value) (driver.Rows, error) {
+func (s *statement) Query(args []driver.Value) (driver.Rows, error) {
 	//TODO implement me
 	panic("implement Query")
 }
