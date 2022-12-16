@@ -29,6 +29,7 @@ func TestRegisterDriver(t *testing.T) {
 
 func TestDB_Exec(t *testing.T) {
 	t.Run("select 1", func(t *testing.T) {
+		sqlite.RegisterDriver("")
 		db, err := sql.Open("sqlite", ":memory:")
 		assert.NoErr(t, err)
 		_, err = db.Exec(`select 1`)
