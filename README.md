@@ -13,5 +13,6 @@ suitable for SQLite usage in modern Go applications.
 - Defaults to WAL journaling mode.
 - Foreign keys checks are enabled by default.
 - A default busy timeout of 5 seconds.
+- Helpful error messages.
 
 Made in 🇩🇰 by [maragu](https://www.maragu.dk/), maker of [online Go courses](https://www.golang.dk/).
