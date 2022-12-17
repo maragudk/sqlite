@@ -340,7 +340,7 @@ func (s *statement) bindArgs(args []driver.Value) error {
 			}
 
 		default:
-			return fmt.Errorf("unsupported arg type %v", arg)
+			return fmt.Errorf("unsupported arg type %T", arg)
 		}
 	}
 
@@ -358,12 +358,12 @@ type rows struct {
 // columns of the result is inferred from the length of the
 // slice. If a particular column name isn't known, an empty
 // string should be returned for that entry.
-func (r rows) Columns() []string {
+func (r *rows) Columns() []string {
 	return r.statement.columnNames
 }
 
 // Close closes the rows iterator.
-func (r rows) Close() error {
+func (r *rows) Close() error {
 	r.statement = nil
 	return r.err
 }
@@ -380,7 +380,7 @@ const maxSlice = 1<<31 - 1
 // should be taken when closing Rows not to modify
 // a buffer held in dest.
 // See https://www.sqlite.org/c3ref/step.html
-func (r rows) Next(dest []driver.Value) error {
+func (r *rows) Next(dest []driver.Value) error {
 	cCode := C.sqlite3_step(r.statement.cStatement)
 
 	if cCode == C.SQLITE_DONE {

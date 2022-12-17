@@ -32,7 +32,7 @@ func Equal[T comparable](t *testing.T, expected, actual T) {
 func EqualBytes(t *testing.T, expected, actual []byte) {
 	t.Helper()
 
-	if bytes.Compare(expected, actual) != 0 {
+	if !bytes.Equal(expected, actual) {
 		t.Fatalf("Not equal, expected %v, got %v", expected, actual)
 	}
 }
