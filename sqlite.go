@@ -49,7 +49,7 @@ type logger interface {
 
 type discardLogger struct{}
 
-func (d *discardLogger) Println(v ...any) {}
+func (d *discardLogger) Println(...any) {}
 
 type Options struct {
 	BusyTimeout *time.Duration
