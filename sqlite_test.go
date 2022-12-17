@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"database/sql"
+	"path"
 	"strconv"
 	"testing"
 	"time"
@@ -30,8 +31,6 @@ func TestRegisterDriver(t *testing.T) {
 }
 
 func TestDB_Open(t *testing.T) {
-	t.Skip()
-
 	t.Run("sets default pragmas", func(t *testing.T) {
 		db := open(t, sqlite.Options{})
 
@@ -40,6 +39,8 @@ func TestDB_Open(t *testing.T) {
 			expected string
 		}{
 			{name: "journal_mode", expected: "wal"},
+			{name: "busy_timeout", expected: "5000"},
+			{name: "foreign_keys", expected: "1"},
 		}
 
 		for _, test := range tests {
@@ -53,11 +54,64 @@ func TestDB_Open(t *testing.T) {
 	})
 }
 
-func TestDB_Exec(t *testing.T) {
-	t.Run("select 1", func(t *testing.T) {
+func TestDB_QueryRow(t *testing.T) {
+	t.Run("select true, 1, 1.1, 'foo', 'foo'", func(t *testing.T) {
 		db := open(t, sqlite.Options{})
-		_, err := db.Exec(`select 1`)
+
+		var b bool
+		var i int
+		var f float64
+		var s string
+		var d []byte
+		err := db.QueryRow(`select true, 1, 1.1, 'foo', 'foo'`).Scan(&b, &i, &f, &s, &d)
+
 		assert.NoErr(t, err)
+		assert.Equal(t, true, b)
+		assert.Equal(t, 1, i)
+		assert.Equal(t, 1.1, f)
+		assert.Equal(t, "foo", s)
+		assert.EqualBytes(t, []byte("foo"), d)
+	})
+
+	t.Run("select true, 1, 1.1, 'foo', 'foo' with args", func(t *testing.T) {
+		db := open(t, sqlite.Options{})
+
+		var b bool
+		var i int
+		var f float64
+		var s string
+		var d []byte
+		err := db.QueryRow(`select ?, ?, ?, ?, ?`, true, 1, 1.1, "foo", []byte("foo")).
+			Scan(&b, &i, &f, &s, &d)
+
+		assert.NoErr(t, err)
+		assert.Equal(t, true, b)
+		assert.Equal(t, 1, i)
+		assert.Equal(t, 1.1, f)
+		assert.Equal(t, "foo", s)
+		assert.EqualBytes(t, []byte("foo"), d)
+	})
+
+	t.Run("queries an inserted and updated row from a table", func(t *testing.T) {
+		db := open(t, sqlite.Options{})
+
+		_, err := db.Exec(`create table t (v int not null)`)
+		assert.NoErr(t, err)
+
+		_, err = db.Exec(`insert into t values (?)`, 1)
+		assert.NoErr(t, err)
+
+		var v int
+		err = db.QueryRow(`select * from t`).Scan(&v)
+		assert.NoErr(t, err)
+		assert.Equal(t, 1, v)
+
+		_, err = db.Exec(`update t set v = ?`, 2)
+		assert.NoErr(t, err)
+
+		err = db.QueryRow(`select * from t`).Scan(&v)
+		assert.NoErr(t, err)
+		assert.Equal(t, 2, v)
 	})
 }
 
@@ -68,7 +122,7 @@ func open(t *testing.T, opts sqlite.Options) *sql.DB {
 
 	sqlite.RegisterDriver(opts)
 
-	db, err := sql.Open(opts.Name, ":memory:")
+	db, err := sql.Open(opts.Name, path.Join(t.TempDir(), "app.db"))
 	assert.NoErr(t, err)
 
 	return db
