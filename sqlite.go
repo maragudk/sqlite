@@ -150,6 +150,10 @@ func errString(cCode C.int) error {
 	return errors.New(C.GoString(C.sqlite3_errstr(cCode)))
 }
 
+// connection is a connection to a database. It is not used concurrently
+// by multiple goroutines.
+//
+// connection is assumed to be stateful.
 // connection satisfies driver.Conn.
 type connection struct {
 	cC *C.sqlite3
