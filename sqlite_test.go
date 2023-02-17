@@ -52,6 +52,17 @@ func TestDB_Open(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("can set different journal mode", func(t *testing.T) {
+		db := open(t, sqlite.Options{
+			JournalMode: sqlite.JournalModeTruncate,
+		})
+
+		var actual string
+		err := db.QueryRow(`pragma journal_mode`).Scan(&actual)
+		assert.NoErr(t, err)
+		assert.Equal(t, sqlite.JournalModeTruncate.String(), actual)
+	})
 }
 
 func TestDB_QueryRow(t *testing.T) {
