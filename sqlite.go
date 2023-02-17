@@ -36,7 +36,12 @@ import (
 type JournalMode string
 
 const (
-	JournalModeWAL = "wal"
+	JournalModeDelete   = JournalMode("delete")
+	JournalModeTruncate = JournalMode("truncate")
+	JournalModePersist  = JournalMode("persist")
+	JournalModeMemory   = JournalMode("memory")
+	JournalModeWAL      = JournalMode("wal")
+	JournalModeOff      = JournalMode("off")
 )
 
 func (j JournalMode) String() string {
